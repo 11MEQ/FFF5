@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { Download, Plus, Trash2, Upload, AlertCircle, FileUp } from "lucide-react"
-import { backupToExcel, getAdmins, addAdmin, removeStaff, restoreFromBackup, exportToExcel } from "@/lib/storage"
+import { backupToExcel, getAdmins, addAdmin, removeStaff, restoreFromBackup, exportToExcel, restoreFromExcelBackup } from "@/lib/storage"
 
 interface SettingsPageProps {
   user: any
@@ -32,9 +32,42 @@ export default function SettingsPage({ user }: SettingsPageProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      const result = restoreFromBackup(data);
+      let result;
+      
+      // Check file type
+      if (file.name.endsWith(".json")) {
+        // Handle JSON file
+        const text = await file.text();
+        const data = JSON.parse(text);
+        result = restoreFromBackup(data);
+      } else if (file.name.endsWith(".xlsx")) {
+        // Handle Excel file
+        const XLSX = await import("xlsx");
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+        
+        // Extract data from sheets
+        const data: any = {};
+        const sheetNames = workbook.SheetNames;
+        
+        // Map sheet names to keys
+        sheetNames.forEach((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet);
+          
+          if (sheetName === "Admins") data.admins = jsonData;
+          else if (sheetName === "Users") data.users = jsonData;
+          else if (sheetName === "Bookings") data.bookings = jsonData;
+          else if (sheetName === "Packages") data.packages = jsonData;
+          else if (sheetName === "Drinks") data.drinks = jsonData;
+        });
+        
+        result = restoreFromExcelBackup(data);
+      } else {
+        setError("يرجى تحميل ملف JSON أو Excel فقط.");
+        return;
+      }
+      
       if (result.success) {
         setBackupMessage("تم استعادة البيانات بنجاح!");
         setAdmins(getAdmins());
@@ -42,7 +75,7 @@ export default function SettingsPage({ user }: SettingsPageProps) {
         setError(result.message || "فشل في استعادة البيانات.");
       }
     } catch (err) {
-      setError("ملف النسخة الاحتياطية غير صالح.");
+      setError("ملف النسخة الاحتياطية غير صالح. تأكد من أن الملف صحيح وبصيغة صحيحة.");
     }
   };
 
@@ -188,7 +221,7 @@ export default function SettingsPage({ user }: SettingsPageProps) {
           <div className="relative">
             <input
               type="file"
-              accept=".json"
+              accept=".json,.xlsx"
               className="hidden"
               id="restore-backup"
               ref={fileInputRef}
@@ -199,7 +232,7 @@ export default function SettingsPage({ user }: SettingsPageProps) {
               className="flex items-center gap-2 bg-bg-secondary hover:bg-bg-tertiary text-text font-medium py-2 px-4 rounded-lg transition-colors cursor-pointer"
             >
               <Upload className="w-5 h-5" />
-              استعادة النسخة الاحتياطية
+              استعادة النسخة الاحتياطية (JSON/Excel)
             </label>
           </div>
         </div>
